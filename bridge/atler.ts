@@ -27,7 +27,7 @@ type Job =
   | { task: 'candidates'; debits: { on: string; description: string; amount: number }[]; today: string }
   | { task: 'suggest'; categories: string[]; filed: { name: string; category: string }[]; test: string[]; prior: boolean }
   | { task: 'priorProbabilities'; texts: string[] }
-  | { task: 'feedback'; payments: { id: string; name: string; amount: number; on: string; categoryId: string | null; anomaly: boolean }[]; answerRate: number; learn: boolean }
+  | { task: 'feedback'; payments: { id: string; name: string; amount: number; on: string; categoryId: string | null; anomaly: boolean }[]; answerRate: number; learn: boolean; reviewFrom?: string }
   | { task: 'features' }
   | { task: 'treeProbability'; x: number[][] }
   | { task: 'unusual'; payments: { id: string; name: string; amount: number; on: string; categoryId: string | null }[] };
@@ -71,7 +71,19 @@ function run(job: Job): unknown {
       const payments = job.payments.map(p => ({ ...p, source: 'statement' }));
       const verdicts: unknown[] = [];
       let bars = fb.learnBars([]);
+      // reviewFrom: everything before it is an imported statement. On that day
+      // you review its biggest past jumps (insights.pastJumps), then go live.
+      let reviewed = !job.reviewFrom;
       return payments.map((p, i) => {
+        if (job.reviewFrom && p.on < job.reviewFrom) return null;
+        if (!reviewed) {
+          reviewed = true;
+          const known = payments.slice(0, i);
+          for (const u of insights.pastJumps(known, p.on, verdicts)) {
+            verdicts.push({ paymentId: u.payment.id, merchant: insights.merchantOf(u.payment), times: u.times, expected: !u.payment.anomaly, at: i });
+          }
+          bars = fb.learnBars(verdicts);
+        }
         const u = insights.unusualness(p, payments.slice(0, i + 1), job.learn ? bars : undefined);
         if (!u) return null;
         if (random() < job.answerRate) {

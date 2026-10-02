@@ -17,15 +17,15 @@ import pandas as pd
 from . import bridge, recurring, synth
 
 
-def simulate(df: pd.DataFrame, names: pd.Series, answer_rate: float, learn: bool) -> pd.Series:
+def simulate(df: pd.DataFrame, names: pd.Series, answer_rate: float, learn: bool, review_from: str | None = None) -> pd.Series:
     users = sorted(df["user"].unique())
     def payments(r: pd.DataFrame) -> list[dict]:
         shown_as = names[r.index].fillna(r["description"])
         return [{"id": i, "name": n, "amount": int(a), "on": d.strftime("%Y-%m-%d"), "categoryId": c, "anomaly": bool(x)}
                 for i, n, a, d, c, x in zip(r["id"], shown_as, r["amount"], r["on"], r["category"], r["anomaly"])]
 
-    jobs = [{"task": "feedback", "answerRate": answer_rate, "learn": learn, "payments": payments(df[df["user"] == u])}
-            for u in users]
+    jobs = [{"task": "feedback", "answerRate": answer_rate, "learn": learn, "payments": payments(df[df["user"] == u]),
+             **({"reviewFrom": review_from} if review_from else {})} for u in users]
     return pd.Series([t for out in bridge.run(jobs) for t in out], index=df.index, dtype=float)
 
 
@@ -34,18 +34,22 @@ def main() -> None:
     for seed in [int(s) for s in os.environ.get("SEEDS", "7,11").split(",")]:
         df = synth.generate(users=40, seed=seed)
         names, _ = recurring.atler(df)
-        for label, rate, learn in (("no answers (2x)", 0.0, False), ("answers 30% of alerts", 0.3, True),
-                                   ("answers 70% of alerts", 0.7, True)):
-            shown = simulate(df, names, rate, learn).notna()
-            q = df["on"].dt.quarter.map({4: "Q1", 1: "Q2", 2: "Q3", 3: "Q4"})  # the year starts in October
-            for quarter in ("Q1", "Q2", "Q3", "Q4"):
-                m = q == quarter
-                rows.append({"seed": seed, "user": label, "quarter": quarter,
-                             "precision": df.loc[m & shown, "anomaly"].mean(),
+        # The first 3 months arrive as an imported statement; alerts are live after that.
+        start = df["on"].min() + pd.Timedelta(days=92)
+        live = df["on"] >= start
+        quarter = ((df["on"] - df["on"].min()).dt.days // 92 + 1).clip(upper=4).map(lambda q: f"Q{q}")
+        for label, rate, learn, review in (("no answers (2x)", 0.0, False, False),
+                                           ("answers 50%", 0.5, True, False), ("answers 50% + review", 0.5, True, True),
+                                           ("answers 70%", 0.7, True, False), ("answers 70% + review", 0.7, True, True),
+                                           ("answers 90%", 0.9, True, False), ("answers 90% + review", 0.9, True, True)):
+            shown = simulate(df, names, rate, learn, start.strftime("%Y-%m-%d") if review else None).notna() & live
+            for q in ("Q2", "Q3", "Q4"):
+                m = quarter == q
+                rows.append({"seed": seed, "user": label, "quarter": q, "precision": df.loc[m & shown, "anomaly"].mean(),
                              "recall": (m & shown & df["anomaly"]).sum() / (m & df["anomaly"]).sum(),
                              "alerts": (m & shown).sum() / df["user"].nunique()})
     out = pd.DataFrame(rows).groupby(["user", "quarter"], sort=False)[["precision", "recall", "alerts"]].mean()
-    print(out.round(3).to_string())
+    print(out.round(3).unstack("quarter").to_string())
 
 
 if __name__ == "__main__":
