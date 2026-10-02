@@ -19,83 +19,75 @@ TypeScript core and runs it under Node, so the numbers describe the shipped code
 
 ## Results
 
-The tables show 40 synthetic users, one year each (35,371 transactions, seed 7). Full tables are in
-[`results/RESULTS.md`](results/RESULTS.md). "Before" means ATLER at `c05ac87`; "after" means ATLER with #28–#30,
-which came out of this repo. The shipped models were trained on seeds 101–103 and never saw these statements.
+The tables show 40 synthetic users, one year each (seed 7). Full tables are in [`results/RESULTS.md`](results/RESULTS.md).
+"ATLER" here means current `main`, including the changes that came out of this repo
+([#28](https://github.com/KunalGITID/ATLER/pull/28)–[#31](https://github.com/KunalGITID/ATLER/pull/31) and
+[#32](https://github.com/KunalGITID/ATLER/pull/32)). The shipped models were trained on seeds 101–103 and never saw
+these statements.
+
+**Generator v2 (October 2026).** Each merchant now has its own spread: metro fares and fees barely move, while Amazon
+and IRCTC swing a lot. Before v2, every merchant varied by the same amount, which made unusual spending look easier
+to catch than it is. The before/after numbers in ATLER #28–#31 were measured on v1.
 
 ![accuracy vs number of filed expenses](results/categorise.png)
 
-**1. Category suggestions** ([ATLER#30](https://github.com/KunalGITID/ATLER/pull/30)). Every user files their
-first *k* expenses, and the model guesses the rest.
+**1. Category suggestions** ([#30](https://github.com/KunalGITID/ATLER/pull/30)). Every user files their first *k*
+expenses, and the model guesses the rest.
 
 | accuracy (%) | k = 10 | 25 | 50 | 100 | 200 |
 |---|---:|---:|---:|---:|---:|
-| ATLER before (Naive Bayes, else keywords) | 49.6 | 58.8 | 69.5 | 81.3 | 88.8 |
-| **ATLER after (shipped prior + your Naive Bayes)** | **86.5** | **86.6** | **87.0** | **89.1** | **94.5** |
-| TF-IDF + logistic regression, yours only | 43.9 | 63.6 | 77.5 | 88.4 | 95.6 |
-| prior + your own logistic regression (best here) | 88.1 | 92.1 | 93.3 | 92.3 | 96.5 |
+| before #30 (Naive Bayes, else keywords) | 53.7 | 62.6 | 71.5 | 81.6 | 89.7 |
+| **ATLER (shipped prior + your Naive Bayes)** | **87.9** | **88.4** | **88.6** | **91.6** | **95.4** |
+| prior + your own logistic regression (best here) | 89.7 | 94.7 | 91.1 | 91.6 | 95.7 |
 
-- On-phone learning alone needs about 100 labels to become useful, and most people give up before filing 100 expenses.
-- A prior trained on other people's statements works from the first expense, because Swiggy is Swiggy for
-  everyone. It only keeps features seen in 3+ users' statements. Character n-grams cope with `SWIGGY*BLR`,
-  `BUNDLTECHNOLOGIES` and similar mangled names.
-- Your filing gets weight *k* / (*k* + 150). That was tuned on a training seed; with 20, accuracy dipped to 81%
-  at 25–50 expenses because Naive Bayes on a handful of labels was trusted too early.
-- What ATLER ships is 1,000 features, 81 KB of JSON (15.7 KB gzipped). Going from 8,000 features down to 1,000
-  costs no accuracy; going down to 300 costs 17 points.
+The prior is trained on other people's statements, so it works from the first expense; Swiggy is Swiggy for
+everyone. It only keeps character n-gram features seen in 3+ users' statements. Your filing gets weight
+*k* / (*k* + 150). It ships as 1,000 features (81 KB of JSON, 15.7 KB gzipped).
 
-**2. Subscription finder** ([ATLER#29](https://github.com/KunalGITID/ATLER/pull/29)), over 154 real recurring series
+**2. Subscription finder** ([#29](https://github.com/KunalGITID/ATLER/pull/29)), over 154 real recurring series
 
 | | precision | recall | F1 | cycle correct |
 |---|---:|---:|---:|---:|
-| ATLER before (rhythm rules) | 76.6 | 85.1 | 80.6 | 96.9 |
-| rules + the name fix only | 78.5 | 94.8 | 85.9 | 99.3 |
-| **ATLER after (name fix + shipped tree model)** | **96.1** | **96.1** | **96.1** | **100** |
+| **ATLER (name fix + shipped tree model)** | **96.7** | **96.1** | **96.4** | **100** |
+| the same model, trained here out-of-fold | 94.3 | 96.8 | 95.5 | 100 |
 
-- **The name fix.** `merchantName` kept bank words (`DR`, `Paid`, `PUR`), so `UPI/DR/…/ADITYA NAIR` and
-  `Paid to ADITYA NAIR` counted as two different payees. A monthly rent was cut into pieces with broken gaps.
-- **The model.** Gradient boosting (80 trees, depth 3) over 11 *regularity* features: gaps, steady amounts, and
-  day-of-month spread. Price and merchant are deliberately not features. ATLER's rhythm table still names the
-  cycle. The features are computed by ATLER's own TypeScript through the bridge, so training and the app share
-  one implementation. The exported trees (30 KB) match scikit-learn to within 1e-7.
-- On seeds 11 and 23, F1 went from 85 to 98 and from 85 to 98.
+On v1, the rules ATLER had before #29 scored F1 81–85. `merchantName` kept bank words (`DR`, `Paid`, `PUR`), which
+split one payee into several. The model is 80 depth-3 trees over 11 regularity features, with no price and no
+merchant, shipped as 30 KB of JSON.
 
-**3. Unusual spending** (277 planted anomalies, 4 to 10 times a merchant's usual amount)
+**3. Unusual spending** (planted anomalies, 4 to 10 times a merchant's typical amount)
 
-| | precision | recall | PR-AUC | alerts per user per year |
-|---|---:|---:|---:|---:|
-| ATLER at `c05ac87` (by category) | 10.4 | 84.5 | 14.4 | 56 |
-| ATLER after #28 (same merchant) and #29 (name fix) | 16.1 | 70.8 | **65.6** | 30 |
-| Isolation Forest | 45.0 | 39.0 | 43.4 | 6 |
+With no answers, ATLER flags spends at least 2× your usual at the same place
+([#28](https://github.com/KunalGITID/ATLER/pull/28)). That is 34 alerts per user per year, and only 16% are real.
+A higher fixed bar doesn't rescue it on v2: 4× gives 48% precision, and fitting it to the planted range would be
+circular anyway. So ATLER learns the bar from **your answers**
+([#31](https://github.com/KunalGITID/ATLER/pull/31)). It asks "Expected?" on the alert card and right after you add
+an unusual expense, and offers a one-off review of your 5 biggest past jumps
+([#32](https://github.com/KunalGITID/ATLER/pull/32)).
 
-#28 stopped comparing against the category: alerts judged against a category were only 7% real, because a big
-DMart shop looks "unusual" next to small corner-shop runs. The name fix in #29 made merchant groups cleaner,
-which raised ranking quality again (PR-AUC 45 → 66). But at its 2× bar, ATLER still raises 30 alerts per user
-per year and 5 in 6 are false. Precision depends almost entirely on that bar:
+`feedback.py` runs ATLER's own `unusualness`, `learnBars` and `pastJumps` with simulated users who answer a share of
+alerts truthfully. The first 3 months arrive as an imported statement; alerts are live after that. Seeds 7 and 11:
 
-| alert when at least | 2× | 2.5× | 3× | 3.5× | 4× |
+| precision | Q2 | Q3 | Q4 | recall Q4 | alerts per user, Q4 |
 |---|---:|---:|---:|---:|---:|
-| precision | 16 | 27 | 47 | 68 | **83** |
-| recall | 71 | 70 | 68 | 66 | 62 |
-| alerts per user per year | 30 | 18 | 10 | 7 | 5 |
+| no answers (2×) | 15% | 14% | 19% | 83% | 9.4 |
+| answers 50% of alerts | 20% | 33% | 53% | 54% | 2.2 |
+| answers 50% + review of past jumps | 38% | 40% | 60% | 50% | 1.8 |
+| answers 70% of alerts | 38% | 60% | 66% | 41% | 1.3 |
+| **answers 70% + review of past jumps** | **45%** | **65%** | **71%** | 44% | 1.3 |
+| answers 90% + review of past jumps | 45% | 65% | 72% | 43% | 1.3 |
 
-That table is *not* a reason to ship 4×. The anomalies are planted at 4–10×, so a 4× bar fits the generator by
-construction. Instead, ATLER now **learns the bar from your answers**
-([ATLER#31](https://github.com/KunalGITID/ATLER/pull/31)). The alert card asks "Expected" or "Not expected", and
-your bar moves just above the jumps you called expected, halfway to the next one you called real. `feedback.py`
-simulates users answering truthfully, running ATLER's own `unusualness` and `learnBars` (seeds 7 and 11, year starting
-in October):
+The biggest lever is how many alerts get answered, which is why ATLER asks right after you add a spend. The review
+lifts the first months. The cost is recall: fewer alerts, and some real ones are no longer shown.
 
-| precision | Q1 | Q2 | Q3 | Q4 |
-|---|---:|---:|---:|---:|
-| no answers | 13% | 17% | 17% | 17% |
-| answers 30% of alerts | 14% | 20% | 33% | 54% |
-| **answers 70% of alerts** | 19% | 48% | **78%** | **81%** |
-
-Recall for the 70% answerer is 63–67% in Q3–Q4, and alerts drop from about 10 to about 1.5 per user per quarter. The
-rule was picked on a training seed from four candidates: counting precision per threshold reached 61% by Q4, and a 1-D
-logistic fit 56–60%. It learns only from the answers, never from how the anomalies were planted. The simulated answers
-are perfectly truthful, though, so real users will do worse.
+**What didn't help (on this data), so it isn't in ATLER:**
+- **A per-user model with more signals** (z-score against the place's own spread, history length, share of the
+  month's spending). Real anomalies are rare, so after a year most users still don't have the dozen-plus answers
+  with 3+ of each kind needed to fit even a 4-feature logistic regression. It never switched on.
+- **Variance-aware gates** (Iglewicz–Hoaglin modified z ≥ 3.5, or z ≥ 2 on top of the learned bar). No better
+  frontier than plain "times your usual" here, because the anomalies are *planted* as multiples of a place's typical
+  amount. Real anomalies may behave differently; only real answers can show that (see **Next**).
+- Learning rules for the bar: per-threshold precision counting and a 1-D logistic fit both lost to the midpoint rule.
 
 ## Caveats
 
@@ -107,7 +99,9 @@ are perfectly truthful, though, so real users will do worse.
   - The category prior only knows the brands in the generator, plus generic words like *medicals* and *stores*.
   - The anomaly numbers depend on how much everyday amounts vary.
 - The anomalies are *planted*, so "recall" means recall of this one kind of anomaly.
-- The tables use seed 7. The subscription and suggestion results were re-checked on seeds 11 and 23.
+- The tables use seed 7. The subscription and suggestion results were re-checked on seeds 11 and 23, and the
+  feedback simulation uses seeds 7 and 11.
+- The simulated users answer perfectly truthfully. Real ones won't.
 
 ## Run it
 
@@ -122,7 +116,7 @@ uv run python -m atler_ml.bench          # full run, about 2 min; writes results
 uv run python -m atler_ml.bench --quick  # 8 users, as in CI
 uv run python -m atler_ml.export subscriptions   # retrain + write ATLER's subscriptionModel.json
 uv run python -m atler_ml.export category-prior  # retrain + write ATLER's categoryPrior.json
-uv run python -m atler_ml.feedback               # answering alerts, by quarter (needs ATLER#31)
+uv run python -m atler_ml.feedback               # answering alerts, by quarter
 ```
 
 ## Layout
@@ -139,10 +133,10 @@ src/atler_ml/bench.py    runs everything, writes results/RESULTS.md
 
 ## Next
 
-- Real precision from real answers: ATLER's You screen now shows "N of the M you answered were really unusual".
-  Collect a few of those (with consent) to check the simulation against reality.
-- Variance-aware scoring: compare against each merchant's own spread (MAD of log amounts) instead of one
-  multiple for every merchant. This matters once real data has steady and erratic merchants.
+- **Real answers, opt-in.** ATLER's You screen shows "N of the M you answered were really unusual". An opt-in,
+  anonymous share of (times your usual, history length, the place's spread, answer) would check this simulation
+  against reality, re-test the variance-aware ideas that didn't help on synthetic data, and give new users a
+  starting bar learned from real people.
 - Forecasting: compare ATLER's 6-month mean against seasonal-naive and ETS, with backtested interval coverage.
 - Results across 5 seeds, with confidence intervals.
 - Model card for the shipped category prior.

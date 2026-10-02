@@ -1,4 +1,4 @@
-"""Synthetic Indian bank statements with ground truth.
+"""Synthetic Indian bank statements with ground truth (v2: per-merchant spread).
 
 ATLER keeps money on the phone and real statements are private, so there is
 no labelled dataset to learn from. This generator writes statements that look
@@ -60,6 +60,18 @@ EVERYDAY: list[tuple[list[str], str, float]] = [
     (["SRM IST FEES", "SRM INSTITUTE"], "Education", 2500),
     (["XEROX POINT", "SRI LAKSHMI XEROX"], "Education", 40),
 ]
+
+# How much a merchant's amounts vary (sigma of log amount). Fixed fares and
+# fees barely move; marketplaces and train tickets swing a lot. Everything
+# else, 0.45. (Before v2 every merchant used 0.45, which hid the difference
+# between "6x at the metro" and "6x at Amazon".)
+SPREAD = {
+    "CHENNAI METRO RAIL": 0.12, "SRM IST FEES": 0.08, "XEROX POINT": 0.2, "JAVA GREEN CANTEEN": 0.2,
+    "RAPIDO": 0.3, "TNEB": 0.3, "STARBUCKS": 0.25,
+    "AMAZON": 0.8, "FLIPKART": 0.8, "MYNTRA": 0.7, "DECATHLON": 0.7, "IRCTC": 0.75, "DMART": 0.6,
+    "BIGBASKET": 0.6, "INDIAN OIL": 0.5, "UBER": 0.5,
+}
+DEFAULT_SPREAD = 0.45
 
 # Subscriptions: (spellings, category, price in rupees, cycle in days or "month"/"year").
 SUBSCRIPTIONS: list[tuple[list[str], str, float, int | str]] = [
@@ -155,8 +167,8 @@ def narration(rng: random.Random, spelling: str, kind: str) -> str:
     raise ValueError(kind)
 
 
-def _amount(rng: random.Random, typical: float) -> int:
-    rupees = typical * rng.lognormvariate(0, 0.45)
+def _amount(rng: random.Random, typical: float, spread: float = DEFAULT_SPREAD) -> int:
+    rupees = typical * rng.lognormvariate(0, spread)
     rupees = round(rupees) if rng.random() < 0.7 else round(rupees, 2)
     return max(100, int(round(rupees * 100)))
 
@@ -216,7 +228,9 @@ def _rent(u: User) -> None:
 
 def _everyday(u: User) -> None:
     rng = u.rng
-    favourites = rng.sample(EVERYDAY, rng.randint(12, 22)) + _locals(rng)
+    locals_ = _locals(rng)
+    local_spread = {spellings[0]: rng.uniform(0.2, 0.5) for spellings, _, _ in locals_}
+    favourites = rng.sample(EVERYDAY, rng.randint(12, 22)) + locals_
     weights = [rng.paretovariate(1.2) for _ in favourites]  # a few places get most of your money
     friends = [f"{rng.choice(FIRST)} {rng.choice(LAST)}" for _ in range(rng.randint(3, 8))]
     rate = rng.uniform(1.2, 3.5)  # payments per day
@@ -226,12 +240,13 @@ def _everyday(u: User) -> None:
         for _ in range(_poisson(rng, rate * busy)):
             if rng.random() < 0.12:  # splitting a bill with a friend
                 who = rng.choice(friends)
-                u.txns.append(Txn(u.id, on, narration(rng, who, "upi"), _amount(rng, 250), who, "Transfers"))
+                u.txns.append(Txn(u.id, on, narration(rng, who, "upi"), _amount(rng, 250, 0.6), who, "Transfers"))
                 continue
             spellings, category, typical = rng.choices(favourites, weights)[0]
             spelling = rng.choice(spellings)
             kind = "upi" if rng.random() < 0.75 else "pos"
-            u.txns.append(Txn(u.id, on, narration(rng, spelling, kind), _amount(rng, typical), spellings[0], category))
+            spread = SPREAD.get(spellings[0], local_spread.get(spellings[0], DEFAULT_SPREAD))
+            u.txns.append(Txn(u.id, on, narration(rng, spelling, kind), _amount(rng, typical, spread), spellings[0], category))
 
 
 def _locals(rng: random.Random) -> list[tuple[list[str], str, float]]:

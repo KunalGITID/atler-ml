@@ -14,11 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # The benchmark runs ATLER's real TypeScript core, so check it out next to this repo.
-      # Pinned to the ATLER commit results/ was measured on (ATLER main after #29 and #30).
+      # Pinned to the ATLER commit results/ was measured on (ATLER main after #31).
       - uses: actions/checkout@v4
         with:
           repository: KunalGITID/ATLER
-          ref: 30adcee519197c3804c9efc3714c1c8c53ab865e
+          ref: fb5385e0975fd2ae1c8a98b509d4b13663a9b18a
           path: ATLER
       - uses: actions/setup-node@v4
         with:
