@@ -80,8 +80,22 @@ per year and 5 in 6 are false. Precision depends almost entirely on that bar:
 | alerts per user per year | 30 | 18 | 10 | 7 | 5 |
 
 That table is *not* a reason to ship 4×. The anomalies are planted at 4–10×, so a 4× bar fits the generator by
-construction. Real spending will be noisier for some merchants (Amazon) and steadier for others (metro fares). The
-honest route to 80%+ precision is to measure it on real alerts, as described under **Next**.
+construction. Instead, ATLER now **learns the bar from your answers**
+([ATLER#31](https://github.com/KunalGITID/ATLER/pull/31)). The alert card asks "Expected" or "Not expected", and
+your bar moves just above the jumps you called expected, halfway to the next one you called real. `feedback.py`
+simulates users answering truthfully, running ATLER's own `unusualness` and `learnBars` (seeds 7 and 11, year starting
+in October):
+
+| precision | Q1 | Q2 | Q3 | Q4 |
+|---|---:|---:|---:|---:|
+| no answers | 13% | 17% | 17% | 17% |
+| answers 30% of alerts | 14% | 20% | 33% | 54% |
+| **answers 70% of alerts** | 19% | 48% | **78%** | **81%** |
+
+Recall for the 70% answerer is 63–67% in Q3–Q4, and alerts drop from about 10 to about 1.5 per user per quarter. The
+rule was picked on a training seed from four candidates: counting precision per threshold reached 61% by Q4, and a 1-D
+logistic fit 56–60%. It learns only from the answers, never from how the anomalies were planted. The simulated answers
+are perfectly truthful, though, so real users will do worse.
 
 ## Caveats
 
@@ -108,6 +122,7 @@ uv run python -m atler_ml.bench          # full run, about 2 min; writes results
 uv run python -m atler_ml.bench --quick  # 8 users, as in CI
 uv run python -m atler_ml.export subscriptions   # retrain + write ATLER's subscriptionModel.json
 uv run python -m atler_ml.export category-prior  # retrain + write ATLER's categoryPrior.json
+uv run python -m atler_ml.feedback               # answering alerts, by quarter (needs ATLER#31)
 ```
 
 ## Layout
@@ -117,17 +132,15 @@ bridge/atler.ts          runs ATLER's TypeScript core on JSON jobs
 src/atler_ml/synth.py    synthetic statements + ground truth
 src/atler_ml/categorise.py, recurring.py, anomaly.py   one file per task
 src/atler_ml/prior.py    the category prior's featurizer (mirrored in ATLER's categoryPrior.ts)
+src/atler_ml/feedback.py simulates people answering unusual-spend alerts
 src/atler_ml/export.py   trains the models ATLER ships and writes them into an ATLER checkout
 src/atler_ml/bench.py    runs everything, writes results/RESULTS.md
 ```
 
 ## Next
 
-- **Unusual spend to 80%+ precision, measured on real alerts.** Add "Expected" / "Not expected" buttons to the
-  card and keep the answers on the phone. Then (1) report real precision, (2) raise the bar per merchant you've
-  marked "expected", and (3) once there are enough answers, learn the bar per user. The table above shows the
-  lever exists: on this data the bar alone moves precision from 16% to 83%. Real feedback is what can set it
-  without fitting the generator.
+- Real precision from real answers: ATLER's You screen now shows "N of the M you answered were really unusual".
+  Collect a few of those (with consent) to check the simulation against reality.
 - Variance-aware scoring: compare against each merchant's own spread (MAD of log amounts) instead of one
   multiple for every merchant. This matters once real data has steady and erratic merchants.
 - Forecasting: compare ATLER's 6-month mean against seasonal-naive and ETS, with backtested interval coverage.

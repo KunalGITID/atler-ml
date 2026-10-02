@@ -16,6 +16,7 @@ const [classify, statement, sms, insights, recurring] = await Promise.all([
 ]);
 
 const suggest = await load('suggest.ts');
+const fb = has('alertFeedback.ts') ? await load('alertFeedback.ts') : null;
 const categoryPrior = has('categoryPrior.ts') ? await load('categoryPrior.ts') : null;
 const loadPrior = () => JSON.parse(readFileSync(resolve(dir, 'src/core/categoryPrior.json'), 'utf8'));
 
@@ -26,6 +27,7 @@ type Job =
   | { task: 'candidates'; debits: { on: string; description: string; amount: number }[]; today: string }
   | { task: 'suggest'; categories: string[]; filed: { name: string; category: string }[]; test: string[]; prior: boolean }
   | { task: 'priorProbabilities'; texts: string[] }
+  | { task: 'feedback'; payments: { id: string; name: string; amount: number; on: string; categoryId: string | null; anomaly: boolean }[]; answerRate: number; learn: boolean }
   | { task: 'features' }
   | { task: 'treeProbability'; x: number[][] }
   | { task: 'unusual'; payments: { id: string; name: string; amount: number; on: string; categoryId: string | null }[] };
@@ -60,6 +62,24 @@ function run(job: Job): unknown {
     case 'priorProbabilities': {
       const prior = loadPrior();
       return job.texts.map(t => { const p = categoryPrior.priorProbabilities(prior, t); return p ? prior.classes.map((c: string) => p.get(c)) : null; });
+    }
+    case 'feedback': {
+      // A user who answers a share of the alerts they're shown, truthfully.
+      // Payments in date order; each is judged with the bars learned so far.
+      let seed = 12345;
+      const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+      const payments = job.payments.map(p => ({ ...p, source: 'statement' }));
+      const verdicts: unknown[] = [];
+      let bars = fb.learnBars([]);
+      return payments.map((p, i) => {
+        const u = insights.unusualness(p, payments.slice(0, i + 1), job.learn ? bars : undefined);
+        if (!u) return null;
+        if (random() < job.answerRate) {
+          verdicts.push({ paymentId: p.id, merchant: insights.merchantOf(p), times: u.times, expected: !p.anomaly, at: i });
+          bars = fb.learnBars(verdicts);
+        }
+        return u.times;
+      });
     }
     case 'features':
       return recurring.SERIES_FEATURES;
