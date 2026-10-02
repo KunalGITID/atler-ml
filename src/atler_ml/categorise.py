@@ -7,7 +7,9 @@ first k, test on everything after), because that's what the phone sees.
 Methods
 - keywords: ATLER's regex hints (import/sms.ts suggestCategory). No learning.
 - atler-nb: ATLER's on-phone Naive Bayes (core/classify.ts) on your k.
-- atler-chain: NB when it's >= 60% sure, else keywords (as core/suggest.ts).
+- atler-chain: NB when it's >= 60% sure, else keywords (core/suggest.ts before the prior).
+- atler-suggest: ATLER's real suggestCategoryId as it is in ATLER_DIR, with the
+  shipped category prior when that checkout has one.
 - tfidf-lr: char n-gram TF-IDF + logistic regression on your k.
 - prior+you: a model trained on *other* users (shipped with the app, so it
   works on day one) blended with tfidf-lr on yours, weight k / (k + 20).
@@ -70,11 +72,16 @@ def run(df: pd.DataFrame, ks: list[int] = KS, folds: int = 5) -> pd.DataFrame:
                          "test": test["description"].tolist()})
             meta.append((u, k, train, test))
     nb = bridge.run(jobs)
+    has_prior = (bridge.atler_dir() / "src/core/categoryPrior.json").exists()
+    classes_ = sorted(df["category"].unique())
+    suggested = bridge.run([{"task": "suggest", "categories": classes_, "prior": has_prior, "test": test["description"].tolist(),
+                             "filed": [{"name": n, "category": c} for n, c in zip(train["description"], train["category"])]}
+                            for (_, _, train, test) in meta])
     kw_names = df["description"].tolist()
     keywords = dict(zip(df["id"], bridge.run([{"task": "keywords", "names": kw_names}])[0]))
 
     preds: list[pd.DataFrame] = []
-    for (u, k, train, test), nb_out in zip(meta, nb):
+    for (u, k, train, test), nb_out, sug in zip(meta, nb, suggested):
         names = test["description"].tolist()
         kw = [keywords[i] for i in test["id"]]
         atler_nb = [p["categoryId"] if p else None for p in nb_out]
@@ -92,7 +99,7 @@ def run(df: pd.DataFrame, ks: list[int] = KS, folds: int = 5) -> pd.DataFrame:
 
         preds.append(pd.DataFrame({
             "user": u, "k": k, "truth": test["category"].to_numpy(),
-            "keywords": kw, "atler-nb": atler_nb, "atler-chain": chain,
+            "keywords": kw, "atler-nb": atler_nb, "atler-chain": chain, "atler-suggest": sug,
             "tfidf-lr": np.array(classes)[p_mine.argmax(1)],
             "prior+you": np.array(classes)[blended.argmax(1)],
             "prior-only": np.array(classes)[p_prior.argmax(1)],
@@ -100,7 +107,7 @@ def run(df: pd.DataFrame, ks: list[int] = KS, folds: int = 5) -> pd.DataFrame:
     return pd.concat(preds, ignore_index=True)
 
 
-METHODS = ["keywords", "atler-nb", "atler-chain", "tfidf-lr", "prior-only", "prior+you"]
+METHODS = ["keywords", "atler-nb", "atler-chain", "atler-suggest", "tfidf-lr", "prior-only", "prior+you"]
 
 
 def score(preds: pd.DataFrame) -> pd.DataFrame:
