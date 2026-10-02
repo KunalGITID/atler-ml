@@ -19,10 +19,13 @@ from . import bridge, recurring, synth
 
 def simulate(df: pd.DataFrame, names: pd.Series, answer_rate: float, learn: bool) -> pd.Series:
     users = sorted(df["user"].unique())
-    jobs = [{"task": "feedback", "answerRate": answer_rate, "learn": learn, "payments": [
-        {"id": i, "name": n, "amount": int(a), "on": d.strftime("%Y-%m-%d"), "categoryId": c, "anomaly": bool(x)}
-        for i, n, a, d, c, x in zip(r["id"], names[r.index].fillna(r["description"]), r["amount"], r["on"], r["category"], r["anomaly"])]}
-        for u in users for r in [df[df["user"] == u]]]
+    def payments(r: pd.DataFrame) -> list[dict]:
+        shown_as = names[r.index].fillna(r["description"])
+        return [{"id": i, "name": n, "amount": int(a), "on": d.strftime("%Y-%m-%d"), "categoryId": c, "anomaly": bool(x)}
+                for i, n, a, d, c, x in zip(r["id"], shown_as, r["amount"], r["on"], r["category"], r["anomaly"])]
+
+    jobs = [{"task": "feedback", "answerRate": answer_rate, "learn": learn, "payments": payments(df[df["user"] == u])}
+            for u in users]
     return pd.Series([t for out in bridge.run(jobs) for t in out], index=df.index, dtype=float)
 
 
