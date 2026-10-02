@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: KunalGITID/ATLER
-          ref: c05ac87ccc
+          ref: c05ac87c1f87bb106ab37f4272a0f288de5a05ca
           path: ATLER
       - uses: actions/setup-node@v4
         with:
