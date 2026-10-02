@@ -13,10 +13,12 @@ jobs:
       ATLER_DIR: ${{ github.workspace }}/ATLER
     steps:
       - uses: actions/checkout@v4
-      # The benchmark runs ATLER's real TypeScript core, so check it out next to this repo.
+      # The benchmark runs ATLER's real TypeScript core, so check it out next to this repo,
+      # pinned to the commit results/ was measured on.
       - uses: actions/checkout@v4
         with:
           repository: KunalGITID/ATLER
+          ref: c05ac87ccc
           path: ATLER
       - uses: actions/setup-node@v4
         with:

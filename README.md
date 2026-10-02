@@ -65,10 +65,16 @@ This is the clearest problem found. Grouped by category, ATLER flags about 56 ex
 in 10 of those alerts are false. A big DMart shop looks "unusual" next to small corner-shop runs, although it
 is ordinary for DMart. Comparing against the same merchant triples the ranking quality (PR-AUC 14 → 45).
 
+I also tried merchant first with a category fallback. It barely helped (precision 10.4 → 11.4). Splitting the
+alerts by which group judged them shows why: alerts judged against the category are only **7%** real, and
+still only 10% at 4× the median. Alerts judged against the same merchant are 16% real at 2× and 41% at 3×. So
+ATLER now compares against the same merchant only. The threshold is still 2×: the anomalies here are planted
+at 4–10×, so tuning it on this data would be circular.
+
 ## What goes back into ATLER
 
-- [ ] Unusual spend: compare against the same merchant once it has 5+ past spends, and fall back to the
-      category before that. This is a small change in `insights.ts`.
+- [x] Unusual spend: compare against the same merchant only, with no category fallback
+      ([ATLER#28](https://github.com/KunalGITID/ATLER/pull/28)).
 - [ ] Category suggestions: switch the tokens to character n-grams and ship a small prior (a few hundred KB of
       logistic-regression weights as JSON) so suggestions work from the first expense. Nothing leaves the phone.
 - [ ] Subscription finder: add a scored "is this a subscription" step in front of the rhythm table.
@@ -82,7 +88,9 @@ is ordinary for DMart. Comparing against the same merchant triples the ranking q
   - The prior's lead depends on how much users' merchants overlap.
   - The anomaly numbers depend on how much everyday amounts vary.
 - The anomalies are *planted*, so "recall" means recall of this one kind of anomaly.
-- One seed, one run. Variance across seeds isn't reported yet.
+- One seed in the tables. The anomaly results were re-checked on seeds 11 and 23 and hold: the
+  merchant-first rule with a category fallback stayed at 11–12% precision on both. Full results across seeds aren't reported yet.
+- The numbers are for ATLER at commit `c05ac87`, before #28; CI checks out that commit.
 
 ## Run it
 
