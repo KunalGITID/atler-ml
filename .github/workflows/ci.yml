@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ATLER_DIR: ${{ github.workspace }}/ATLER
+    steps:
+      - uses: actions/checkout@v4
+      # The benchmark runs ATLER's real TypeScript core, so check it out next to this repo.
+      - uses: actions/checkout@v4
+        with:
+          repository: KunalGITID/ATLER
+          path: ATLER
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+      - name: Quick benchmark (8 users)
+        run: uv run python -m atler_ml.bench --quick
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-quick
+          path: results/quick/

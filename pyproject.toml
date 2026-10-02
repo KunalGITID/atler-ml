@@ -1,0 +1,36 @@
+[project]
+name = "atler-ml"
+version = "0.1.0"
+description = "Does ML beat ATLER's heuristics? Category suggestions, subscription detection and unusual-spend alerts, benchmarked on synthetic Indian bank statements."
+readme = "README.md"
+authors = [
+    { name = "Kunal Shukla", email = "kunalshukla7999@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "scikit-learn>=1.9.1",
+    "tabulate>=0.10.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+line-length = 130
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B905"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
