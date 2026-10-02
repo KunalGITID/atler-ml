@@ -4,10 +4,9 @@ Planted anomalies are ordinary merchants at 4-10x their usual amount (1% of
 everyday spends). Every method only looks at the past: an expense is judged
 against earlier ones, as it would be on the day it happened.
 
-- atler: unusualness (core/insights.ts): Tukey's fence on the category's past
-  amounts, at least 2x the median, Rs 200 or more, 5+ earlier expenses.
-- atler-by-merchant: the same rule, but judged against earlier spends at the
-  same merchant (ATLER's own fallback when an expense has no category).
+- atler: unusualness (core/insights.ts): Tukey's fence on earlier spends at the
+  same merchant (by category before ATLER#28), at least 2x the median,
+  Rs 200 or more, 5+ earlier spends.
 - robust-z: log amount against the median/MAD of earlier amounts in the same
   category AND at the same merchant; flagged when either z > 3.5.
 - iforest: Isolation Forest over the same "how far from usual" features,
@@ -42,12 +41,11 @@ def run(df: pd.DataFrame, merchants: pd.Series) -> pd.DataFrame:
     df = df.assign(merchant_name=merchants.fillna(df["description"]), log=np.log(df["amount"] / 100))
     users = sorted(df["user"].unique())
     assert df["user"].is_monotonic_increasing  # so the batched answers line up with the rows
-    for col, by_category in (("atler_score", True), ("atler_merchant_score", False)):
-        jobs = [{"task": "unusual", "payments": [
-            {"id": i, "name": n, "amount": int(a), "on": d.strftime("%Y-%m-%d"), "categoryId": c if by_category else None}
-            for i, n, a, d, c in zip(r["id"], r["merchant_name"], r["amount"], r["on"], r["category"])]}
-            for u in users for r in [df[df["user"] == u]]]
-        df[col] = pd.Series([t for out in bridge.run(jobs) for t in out], index=df.index, dtype=float).fillna(0)
+    jobs = [{"task": "unusual", "payments": [
+        {"id": i, "name": n, "amount": int(a), "on": d.strftime("%Y-%m-%d"), "categoryId": c}
+        for i, n, a, d, c in zip(r["id"], r["merchant_name"], r["amount"], r["on"], r["category"])]}
+        for u in users for r in [df[df["user"] == u]]]
+    df["atler_score"] = pd.Series([t for out in bridge.run(jobs) for t in out], index=df.index, dtype=float).fillna(0)
 
     df["z_cat"] = np.nan
     df["z_merchant"] = np.nan
@@ -68,10 +66,22 @@ def run(df: pd.DataFrame, merchants: pd.Series) -> pd.DataFrame:
     return df
 
 
+THRESHOLDS = [2, 2.5, 3, 3.5, 4]
+
+
+def threshold_curve(df: pd.DataFrame) -> pd.DataFrame:
+    """ATLER's alerts if the "times the usual" bar were higher than 2x."""
+    flagged, n, users = df[df["atler_score"] > 0], df["anomaly"].sum(), df["user"].nunique()
+    return pd.DataFrame([{"at least": f"{t}x", "precision": flagged.loc[flagged["atler_score"] >= t, "anomaly"].mean(),
+                          "recall": flagged.loc[flagged["atler_score"] >= t, "anomaly"].sum() / n,
+                          "alerts per user per year": round((flagged["atler_score"] >= t).sum() / users, 1)}
+                         for t in THRESHOLDS])
+
+
 def score(df: pd.DataFrame) -> pd.DataFrame:
-    flags = {"atler": df["atler_score"] > 0, "atler-by-merchant": df["atler_merchant_score"] > 0,
+    flags = {"atler": df["atler_score"] > 0,
              "robust-z": df["z_score"] > Z, "iforest": df["iforest_flag"].astype(bool)}
-    scores = {"atler": df["atler_score"], "atler-by-merchant": df["atler_merchant_score"],
+    scores = {"atler": df["atler_score"],
               "robust-z": df["z_score"], "iforest": df["iforest_score"]}
     y = df["anomaly"]
     return pd.DataFrame([{

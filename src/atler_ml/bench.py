@@ -49,8 +49,11 @@ def main() -> None:
     rec_table = pd.DataFrame([{"method": m, **{k: v for k, v in rec[m].items()}} for m in ("atler", "gbm")])
     print(rec_table)
 
-    an = anomaly.score(anomaly.run(df, rec["names"]))
+    scored = anomaly.run(df, rec["names"])
+    an = anomaly.score(scored)
+    curve = anomaly.threshold_curve(scored)
     print(an)
+    print(curve)
 
     # figure: accuracy vs how many expenses you've filed
     fig, ax = plt.subplots(figsize=(7, 4.2))
@@ -95,6 +98,10 @@ Over {rec['eligible']} real recurring series (3+ charges, or 2+ for yearly plans
 ## 3. Unusual spending
 
 {_table(an, ['precision', 'recall', 'f1', 'pr_auc'])}
+
+ATLER's alerts with a higher "times your usual" bar (it uses 2x):
+
+{_table(curve, ['precision', 'recall'])}
 """
     (out / "RESULTS.md").write_text(report)
     print(f"wrote {out / 'RESULTS.md'} in {time.time() - t0:.0f} s")
